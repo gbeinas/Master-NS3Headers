@@ -6,6 +6,7 @@
 #include <vector>
 #include <cmath>
 #include <ns3/globalvars.h>
+#include "ns3/random-variable-stream.h"
 
 #define VOICE 0
 #define WEBDATA 1
@@ -186,18 +187,27 @@ void createBuilding(double xstart, double xend, double ystart, double yend, doub
 	cout<< "The boundaries of the building is: " << build->GetBoundaries() << " ,number of floors is: " << build->GetNFloors() << ", the number of rooms in X is : " << build->GetNRoomsX() << " and in Y is : " << build->GetNRoomsY() << endl;
 }
 
-void createMobility (MobilityHelper mobility, Ptr<ConstantPositionMobilityModel> mm0, uint16_t neNbs, uint16_t nHeNbs, NodeContainer& eNbsnodes, NodeContainer& HeNbsnodes, NodeContainer& UEsnodes, NodeContainer& remoteHostContainer, NodeContainer& Extra_UEsnodes,double xstart, double xend, double ystart, double yend)
+double getRandom (double min,double max)
+{
+		Ptr<UniformRandomVariable> sTypes = CreateObject<UniformRandomVariable> ();
+		sTypes->SetAttribute ("Min", DoubleValue (min));
+		sTypes->SetAttribute ("Max", DoubleValue (max));
+		return sTypes->GetValue();
+}
+void createMobility (MobilityHelper mobility, Ptr<ConstantPositionMobilityModel> mm0, uint16_t neNbs, uint16_t nHeNbs, uint16_t nUEs, uint16_t nWiFi, NodeContainer& eNbsnodes, NodeContainer& HeNbsnodes, NodeContainer& UEsnodes, NodeContainer& WiFinodes, NodeContainer& remoteHostContainer,double xstart, double xend, double ystart, double yend)
 {
 //--------------------------------Create all lte/wifi nodes------------------------------//
 		UEsnodes.Create(nUEs);
 		eNbsnodes.Create(neNbs);
 		HeNbsnodes.Create(nHeNbs);
-		/* TODO
-		Add extra functionality for WiFi nodes
-		*/
 		remoteHostContainer.Create(1);
+
+		/* TODO Add extra functionality for WiFi nodes */
+		WiFinodes.Create(nWiFi);
+
 		cout << "Just created : " << eNbsnodes.GetN() << " eNbs!!" << "\n" << endl;
 		cout << "Just created : " << HeNbsnodes.GetN() << " HeNbs!!" << "\n" << endl;
+		cout << "Just created : " << WiFinodes.GetN() << " WiFi AP!!" << "\n" << endl;
 		cout << "Just created : " << UEsnodes.GetN() << " UE nodes!!" << "\n" << endl;
 
 		//-----------------------Declaration of Mobility and Position for All Nodes------------------------//
@@ -210,37 +220,56 @@ void createMobility (MobilityHelper mobility, Ptr<ConstantPositionMobilityModel>
 		BuildingsHelper::Install(eNbsnodes);
 		mobility.Install(remoteHostContainer);
 		BuildingsHelper::Install(remoteHostContainer);
+		mobility.Install(WiFinodes);
+		BuildingsHelper::Install(WiFinodes);
 
+		/* ---------------------HeNBs topology --------------------------*/
 		mm0 = HeNbsnodes.Get(0)->GetObject<ConstantPositionMobilityModel>();
-		mm0->SetPosition(Vector(220, 240, 3));
+		mm0->SetPosition(Vector(getRandom(305,320),getRandom(310 ,325), 3));
 
 		mm0 = HeNbsnodes.Get(1)->GetObject<ConstantPositionMobilityModel>();
-		mm0->SetPosition(Vector(280, 210, 3));
+		mm0->SetPosition(Vector(getRandom(330,345),getRandom(310 ,325), 3));
 
 		mm0 = HeNbsnodes.Get(2)->GetObject<ConstantPositionMobilityModel>();
-		mm0->SetPosition(Vector(222, 242, 3));
+		mm0->SetPosition(Vector(getRandom(355,370),getRandom(310 ,325), 3));
+
 		mm0 = HeNbsnodes.Get(3)->GetObject<ConstantPositionMobilityModel>();
-		mm0->SetPosition(Vector(282, 212, 3));
+		mm0->SetPosition(Vector(getRandom(380,395),getRandom(310 ,325), 3));
 
 		mm0 = HeNbsnodes.Get(4)->GetObject<ConstantPositionMobilityModel>();
-		mm0->SetPosition(Vector(224, 244, 3));
+		mm0->SetPosition(Vector(getRandom(305,320),getRandom(330 ,345), 3));
+
 		mm0 = HeNbsnodes.Get(5)->GetObject<ConstantPositionMobilityModel>();
-		mm0->SetPosition(Vector(284, 214, 3));
+		mm0->SetPosition(Vector(getRandom(330,345),getRandom(330 ,345), 3));
 
+		mm0 = HeNbsnodes.Get(6)->GetObject<ConstantPositionMobilityModel>();
+		mm0->SetPosition(Vector(getRandom(355,370),getRandom(330 ,345), 3));
+
+		mm0 = HeNbsnodes.Get(7)->GetObject<ConstantPositionMobilityModel>();
+		mm0->SetPosition(Vector(getRandom(380,395),getRandom(330 ,345), 3));
+
+		mm0 = HeNbsnodes.Get(8)->GetObject<ConstantPositionMobilityModel>();
+		mm0->SetPosition(Vector(getRandom(303,397),getRandom(303 ,347), 3));
+
+		mm0 = HeNbsnodes.Get(9)->GetObject<ConstantPositionMobilityModel>();
+		mm0->SetPosition(Vector(getRandom(303,397),getRandom(303 ,347), 3));
+
+
+		/* ---------------------eNBs topology --------------------------*/
 		mm0 = eNbsnodes.Get(0)->GetObject<ConstantPositionMobilityModel>();
-		mm0->SetPosition(Vector(1, 450, 3));
-
-		mm0 = Extra_UEsnodes.Get(2)->GetObject<ConstantPositionMobilityModel>();
-		mm0->SetPosition(Vector(2, 451, 2));
+		mm0->SetPosition(Vector(getRandom(130,200),getRandom(430 ,550),10));
 
 		mm0 = eNbsnodes.Get(1)->GetObject<ConstantPositionMobilityModel>();
-		mm0->SetPosition(Vector(3, 452, 3));
+		mm0->SetPosition(Vector(getRandom(130,200),getRandom(100 ,200),10));
 
 		mm0 = eNbsnodes.Get(2)->GetObject<ConstantPositionMobilityModel>();
-		mm0->SetPosition(Vector(5, 454, 3));
+		mm0->SetPosition(Vector(getRandom(390,460),getRandom(430 ,550),10));
+
+		mm0 = eNbsnodes.Get(3)->GetObject<ConstantPositionMobilityModel>();
+		mm0->SetPosition(Vector(getRandom(430,500),getRandom(100 ,200),10));
 
 		mm0 =remoteHostContainer.Get(0)->GetObject<ConstantPositionMobilityModel>();
-		mm0->SetPosition(Vector(50, 50, 3));
+		mm0->SetPosition(Vector(350, 325, 3));
 
 		Ptr<PositionAllocator> positionAlloc = CreateObject<RandomRoomPositionAllocator>();
 		mobility.SetPositionAllocator(positionAlloc);
@@ -257,4 +286,7 @@ void createMobility (MobilityHelper mobility, Ptr<ConstantPositionMobilityModel>
 		cout << "Mobility created with success!!" << "\n"<< endl;
 }
 
+/* TODO
+RngSeedManager::SetSeed (3);
+*/
 #endif
