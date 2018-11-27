@@ -286,6 +286,23 @@ void createMobility (MobilityHelper mobility, Ptr<ConstantPositionMobilityModel>
 		cout << "Mobility created with success!!" << "\n"<< endl;
 }
 
+void printTopology (Ptr<MobilityModel> mob, Vector pos, uint16_t neNbs, uint16_t nHeNbs,uint16_t nWiFi, NodeContainer& eNbsnodes, NodeContainer& HeNbsnodes, NodeContainer& WiFinodes)
+{
+	for (uint32_t i=0;i<nWiFi;i++){
+			if (i<neNbs)
+			{
+				mob = eNbsnodes.Get(i)->GetObject<MobilityModel>();
+				cout << "The position of eNodeB: " << i+1 << " is x: " << mob->GetPosition().x  << " and y: " << mob->GetPosition().y << endl;
+			}
+			if (i<nHeNbs)
+			{
+				mob = HeNbsnodes.Get(i)->GetObject<MobilityModel>();
+				cout << "The position of HeNodeB: " << i+1 << " is x: " << mob->GetPosition().x  << " and y: " << mob->GetPosition().y << endl;
+			}
+			mob = WiFinodes.Get(i)->GetObject<MobilityModel>();
+			cout << "The position of WiFiAP: " << i+1 << " is x: " << mob->GetPosition().x  << " and y: " << mob->GetPosition().y << endl;
+		}
+}
 /* TODO
 RngSeedManager::SetSeed (3);
 */
