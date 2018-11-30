@@ -5,10 +5,12 @@
 
 #include <vector>
 #include <cmath>
-#include <ns3/globalvars.h>
+//#include <ns3/globalvars.h>
 #include "ns3/random-variable-stream.h"
 
 #define VOICE 0
+#define VIDEO 1
+#define VOIP 2
 #define WEBDATA 1
 #define STREAMDATA 2
 #define IDLE 3
@@ -16,8 +18,63 @@
 using namespace ns3;
 using namespace std;
 
-/*********************** Utility Funtions ************************/
+/* ----------------Command-Line Variables --------------*/
+CommandLine cmd;
+bool useCa = true;
+int RngSize = 250;
+double simTime = 15.0; /* Measured in seconds*/ //100
 
+/* ----------------Arithmetic Variables --------------*/
+static uint16_t nHeNbs = 10;
+static uint16_t neNbs = 4;
+static uint16_t nWiFi = 20;
+uint32_t nUEs = 10;
+uint32_t nUEs_Array = nUEs;
+double packet_interval = 3.8;
+int voice_packet_size = 100;
+int voip_packet_size = 100;
+
+
+/* ------------- struct to store UE stats  -------------- */
+struct ueInformation{
+	uint32_t ue_id;
+	uint64_t txBytes [3];
+	uint64_t rxBytes [3];
+	uint32_t txPackets [3];
+	uint32_t rxPackets [3];
+	uint32_t LostPackets [3];
+	double transition_time;
+};
+
+/* --------------------- Load Traffic Variables ------------------------- */
+ueInformation* ueIds;
+int* CellMap; //where each UE is attached every time
+
+/* --------------- Initial Container-Helpers -------------*/
+	Ptr<Building> build;
+	Ptr<LteHelper> lteHelper;
+	Ptr<PointToPointEpcHelper>  epcHelper;
+	Ptr<MobilityBuildingInfo> mbi;
+	Ptr<Node> remoteHost;
+	MobilityHelper mobility;
+	NetDeviceContainer enbLteDevs, ueLteDevs,HenbLteDevs;
+	NodeContainer eNbsnodes, HeNbsnodes, UEsnodes, remoteHostContainer, WiFinodes;
+	Ptr<ConstantPositionMobilityModel> mm0;
+	Ptr<MobilityModel> mob;
+	Vector pos;
+	InternetStackHelper internet;
+	Ipv4InterfaceContainer ueIpIface;
+	Ipv4AddressHelper address;
+
+/*--------------- Various Variables Declaration-----------*/
+Ptr<NormalRandomVariable> endTimeVoice;
+Ptr<NormalRandomVariable> endTimeVideo;
+Ptr<NormalRandomVariable> endTimeVoip;
+Ptr<UniformRandomVariable> sTypes;
+
+
+/*********************** Utility Funtions ************************/
+/*
 void AppsSetup (Ptr<Node> ue, uint16_t &dlPort, uint16_t &ulPort, uint32_t u, Time startTime, Time endTime, uint16_t stype)
 {
   if(stype == IDLE)
@@ -100,7 +157,7 @@ PrintGnuplottableBuildingListToFile (std::string filename)
               << " front fs empty "
               << endl;
     }
-}
+} */
 
 void
 PrintGnuplottableUeListToFile (std::string filename)
@@ -159,21 +216,6 @@ PrintGnuplottableEnbListToFile (std::string filename)
     }
 }
 
-NetDeviceContainer accessNetworkSetUp(const NodeContainer& nodes, double TxPower, std::string pathLossModel, double frequency, double internalWallLoss, double shadow, double dl_earfcn, double ul_earfcn, double dl_bw, double ul_bw)
-{
-	/*----------------------------------eNBs Declaration----------------------------------------------------------*/
-	Config::SetDefault("ns3::LteEnbPhy::TxPower", DoubleValue(TxPower));
-	lteHelper->SetAttribute("PathlossModel",StringValue(pathLossModel));
-	lteHelper->SetPathlossModelAttribute("Frequency", DoubleValue(frequency));
-	lteHelper->SetPathlossModelAttribute("InternalWallLoss", DoubleValue(internalWallLoss));
-	lteHelper->SetPathlossModelAttribute("ShadowSigmaIndoor", DoubleValue(shadow));
-	lteHelper->SetEnbDeviceAttribute("DlEarfcn", UintegerValue(dl_earfcn));
-	lteHelper->SetEnbDeviceAttribute("UlEarfcn", UintegerValue(dl_earfcn+ul_earfcn));
-	lteHelper->SetEnbDeviceAttribute("DlBandwidth", UintegerValue(dl_bw)); //Value is equivalent to Resource Blocks
-	lteHelper->SetEnbDeviceAttribute("UlBandwidth", UintegerValue(ul_bw)); //Value is equivalent to Resource Blocks
-	return (lteHelper->InstallEnbDevice(nodes));
-}
-
 void createBuilding(double xstart, double xend, double ystart, double yend, double zmin, double zmax, uint16_t nRoomsX, uint16_t nRoomsY, uint16_t nFloors,Ptr<Building> build,Ptr<MobilityBuildingInfo> mbi){
 
 	cout <<" ******* Creating Building ******* "<< endl;
@@ -194,6 +236,7 @@ double getRandom (double min,double max)
 		sTypes->SetAttribute ("Max", DoubleValue (max));
 		return sTypes->GetValue();
 }
+
 void createMobility (MobilityHelper mobility, Ptr<ConstantPositionMobilityModel> mm0, uint16_t neNbs, uint16_t nHeNbs, uint16_t nUEs, uint16_t nWiFi, NodeContainer& eNbsnodes, NodeContainer& HeNbsnodes, NodeContainer& UEsnodes, NodeContainer& WiFinodes, NodeContainer& remoteHostContainer,double xstart, double xend, double ystart, double yend)
 {
 //--------------------------------Create all lte/wifi nodes------------------------------//
@@ -284,6 +327,36 @@ void createMobility (MobilityHelper mobility, Ptr<ConstantPositionMobilityModel>
 		BuildingsHelper::Install(UEsnodes);
 		BuildingsHelper::MakeMobilityModelConsistent();
 		cout << "Mobility created with success!!" << "\n"<< endl;
+
+}
+
+/**
+ * Installs a set of (H)eNBs to the access network
+ */
+NetDeviceContainer accessNetworkSetUp(const NodeContainer& nodes, double TxPower, std::string pathLossModel, double frequency, double internalWallLoss, double shadow, double dl_earfcn, double ul_earfcn, double dl_bw, double ul_bw) {
+	/*----------------------------------eNBs Declaration----------------------------------------------------------*/
+	Config::SetDefault("ns3::LteEnbPhy::TxPower", DoubleValue(TxPower));
+	lteHelper->SetAttribute("PathlossModel",StringValue(pathLossModel));
+	lteHelper->SetPathlossModelAttribute("Frequency", DoubleValue(frequency));
+	lteHelper->SetPathlossModelAttribute("InternalWallLoss", DoubleValue(internalWallLoss));
+	lteHelper->SetPathlossModelAttribute("ShadowSigmaIndoor", DoubleValue(shadow));
+	lteHelper->SetPathlossModelAttribute("ShadowSigmaOutdoor",DoubleValue(7.0));
+	lteHelper->SetPathlossModelAttribute("ShadowSigmaExtWalls",DoubleValue(5.0));
+	lteHelper->SetEnbDeviceAttribute("DlEarfcn", UintegerValue(dl_earfcn));
+	lteHelper->SetEnbDeviceAttribute("UlEarfcn", UintegerValue(dl_earfcn+ul_earfcn));
+	lteHelper->SetEnbDeviceAttribute("DlBandwidth", UintegerValue(dl_bw)); //Value is equivalent to Resource Blocks
+	lteHelper->SetEnbDeviceAttribute("UlBandwidth", UintegerValue(ul_bw)); //Value is equivalent to Resource Blocks
+	lteHelper->SetPathlossModelAttribute ("Los2NlosThr", DoubleValue (1e6));
+	lteHelper->SetSpectrumChannelType ("ns3::MultiModelSpectrumChannel");
+	if(TxPower>20)
+	{
+		lteHelper->SetEnbAntennaModelType ("ns3::ParabolicAntennaModel");
+	}
+	else
+	{
+		lteHelper->SetEnbAntennaModelType ("ns3::IsotropicAntennaModel");
+	}
+	return (lteHelper->InstallEnbDevice(nodes));
 }
 
 void printTopology (Ptr<MobilityModel> mob, Vector pos, uint16_t neNbs, uint16_t nHeNbs,uint16_t nWiFi, NodeContainer& eNbsnodes, NodeContainer& HeNbsnodes, NodeContainer& WiFinodes)
@@ -303,7 +376,129 @@ void printTopology (Ptr<MobilityModel> mob, Vector pos, uint16_t neNbs, uint16_t
 			cout << "The position of WiFiAP: " << i+1 << " is x: " << mob->GetPosition().x  << " and y: " << mob->GetPosition().y << endl;
 		}
 }
+
+void AppsSetup (uint16_t &dlPort, uint16_t &ulPort, uint32_t u, Time startTime, Time endTime, uint16_t stype)
+{
+  ApplicationContainer cApps, sApps;
+
+  Ptr<Node> ue = UEsnodes.Get(u);
+
+  // Set the default gateway for the UE
+  Ptr<Ipv4StaticRouting> ueStaticRouting = ipv4RoutingHelper.GetStaticRouting (ue->GetObject<Ipv4> ());
+  ueStaticRouting->SetDefaultRoute (epcHelper->GetUeDefaultGatewayAddress (), 1);
+
+  ++ulPort;
+  ++dlPort;
+  PacketSinkHelper dlPacketSinkHelper ("ns3::UdpSocketFactory", InetSocketAddress (Ipv4Address::GetAny (), dlPort));
+  PacketSinkHelper ulPacketSinkHelper ("ns3::UdpSocketFactory", InetSocketAddress (Ipv4Address::GetAny (), ulPort));
+  sApps.Add (dlPacketSinkHelper.Install (UEsnodes.Get(u)));
+  sApps.Add (ulPacketSinkHelper.Install (remoteHost));
+
+  UdpClientHelper dlClient (ueIpIface.GetAddress (u), dlPort);
+  dlClient.SetAttribute ("Interval", TimeValue (MilliSeconds(10))); //3
+  dlClient.SetAttribute ("MaxPackets", UintegerValue(1000000));
+  if (stype == VOICE)
+    dlClient.SetAttribute ("PacketSize", UintegerValue(100)); //18
+  else if (stype == VIDEO)
+    dlClient.SetAttribute ("PacketSize", UintegerValue(500));
+  else if (stype == VOIP)
+    dlClient.SetAttribute ("PacketSize", UintegerValue(200));
+
+
+
+  if (stype == VOICE) {
+    UdpClientHelper ulClient (remoteHostAddr, ulPort);
+    ulClient.SetAttribute ("Interval", TimeValue (MilliSeconds(packet_interval))); //10
+    ulClient.SetAttribute ("MaxPackets", UintegerValue(1000000));
+    ulClient.SetAttribute ("PacketSize", UintegerValue(voice_packet_size)); //18,80
+    cApps.Add (ulClient.Install (ue));
+  }
+  else if (stype == VIDEO)
+  {
+	  UdpClientHelper ulClient (remoteHostAddr, ulPort);
+    ulClient.SetAttribute ("Interval", TimeValue (MilliSeconds(packet_interval))); //10
+    ulClient.SetAttribute ("MaxPackets", UintegerValue(1000000));
+    ulClient.SetAttribute ("PacketSize", UintegerValue(400)); //100
+    cApps.Add (ulClient.Install (ue));
+  }
+  else if (stype == VOIP)
+  {
+	  UdpClientHelper ulClient (remoteHostAddr, ulPort);
+    ulClient.SetAttribute ("Interval", TimeValue (MilliSeconds(packet_interval))); //10
+    ulClient.SetAttribute ("MaxPackets", UintegerValue(1000000));
+    ulClient.SetAttribute ("PacketSize", UintegerValue(voip_packet_size)); //200
+    cApps.Add (ulClient.Install (ue));
+  }
+
+  cApps.Add (dlClient.Install (remoteHost));
+
+  //std::cout << "STARTTIME :::: " << startTime << " ENDTIME :::: " << endTime << std::endl;
+
+  sApps.Start (startTime);
+  cApps.Start (startTime);
+  sApps.Stop (endTime);
+  cApps.Stop (endTime);
+}
+
 /* TODO
 RngSeedManager::SetSeed (3);
 */
+void TrafficTimeline (Ptr<UniformRandomVariable> sTypes, uint16_t i, double simTimeNS)
+{
+	int stype;
+	double startTime, endTime;
+	endTime = 0.0;
+
+
+	while(1) {
+	stype = (int)sTypes->GetValue ();
+
+	if(stype == VOICE)
+	{
+	  startTime = endTime + 0.0001;
+	  endTime = startTime + std::abs(endTimeVoice->GetValue ());
+
+	} else if (stype == VIDEO) {
+
+	  startTime = endTime + 0.0001;
+	  endTime = startTime + std::abs(endTimeVideo->GetValue ());
+
+	} else if (stype == VOIP) {
+
+	 startTime = endTime + 0.0001;
+	 endTime = startTime + std::abs(endTimeVoip->GetValue ());
+}
+
+//std::cout << "ENDTIME : " << endTime << " SIMTIMENS : " << simTimeNS << std::endl;
+
+if (endTime >= simTimeNS)
+  break;
+
+string serv;
+
+if(stype == VOICE)
+  serv = "VOICE";
+else if(stype == VIDEO)
+  serv = "VIDEO";
+else if(stype == VOIP)
+  serv = "VOIP";
+
+cout << "Service Type : \t" << serv << "\tStart Time :\t" << startTime
+		  << "\tEnd Time :\t" << endTime << "\tduration :\t" <<  endl;
+
+
+AppsSetup (dlPort, ulPort, i, Seconds(startTime), Seconds(endTime), stype);
+}
+}
+
+
+void Initialise_Arrays()
+{
+	for(int i=0;i<nUEs_Array;i++)
+	{
+		CellMap[i] = 0;
+	}
+	cout << "Initialization of CellMap array finish with success"<< endl;
+
+}
 #endif
