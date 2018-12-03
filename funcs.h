@@ -23,6 +23,8 @@ CommandLine cmd;
 bool useCa = true;
 int RngSize = 250;
 double simTime = 15.0; /* Measured in seconds*/ //100
+string ul_pdcp_flname = "Master_PDCP-UL.txt";
+string dl_pdcp_flname = "Master_PDCP-DL.txt";
 
 /* ----------------Arithmetic Variables --------------*/
 static uint16_t nHeNbs = 10;
@@ -33,7 +35,20 @@ uint32_t nUEs_Array = nUEs;
 double packet_interval = 3.8;
 int voice_packet_size = 100;
 int voip_packet_size = 100;
-
+double TxPower = 23.0;
+double frequency = 2.5;
+double internalWallLoss = 5.0;
+double shadow = 8.0;
+double eNB_dl_earfcn = 100.0;
+double eNB_ul_earfcn = 18000.0;
+double HeNB_dl_earfcn = 100.0;
+double Henb_ul_earfcn = 18000.0;
+double eNbDLBandwidth = 15; //Value is equivalent to Resource Blocks
+double eNbULBandwidth = 15; //Value is equivalent to Resource Blocks
+double HeNbDLBandwidth = 6; //Value is equivalent to Resource Blocks
+double HeNbULBandwidth = 6; //Value is equivalent to Resource Blocks
+uint16_t dlPort = 10000;
+uint16_t ulPort = 30000;
 
 /* ------------- struct to store UE stats  -------------- */
 struct ueInformation{
@@ -49,22 +64,29 @@ struct ueInformation{
 /* --------------------- Load Traffic Variables ------------------------- */
 ueInformation* ueIds;
 int* CellMap; //where each UE is attached every time
+uint32_t* Ues_per_Cell;
 
 /* --------------- Initial Container-Helpers -------------*/
-	Ptr<Building> build;
-	Ptr<LteHelper> lteHelper;
-	Ptr<PointToPointEpcHelper>  epcHelper;
-	Ptr<MobilityBuildingInfo> mbi;
-	Ptr<Node> remoteHost;
-	MobilityHelper mobility;
-	NetDeviceContainer enbLteDevs, ueLteDevs,HenbLteDevs;
-	NodeContainer eNbsnodes, HeNbsnodes, UEsnodes, remoteHostContainer, WiFinodes;
-	Ptr<ConstantPositionMobilityModel> mm0;
-	Ptr<MobilityModel> mob;
-	Vector pos;
-	InternetStackHelper internet;
-	Ipv4InterfaceContainer ueIpIface;
-	Ipv4AddressHelper address;
+Ptr<Building> build;
+Ptr<LteHelper> lteHelper;
+static Ptr<EpcHelper> epcHelper;
+Ptr<MobilityBuildingInfo> mbi;
+Ptr<Node> remoteHost;
+MobilityHelper mobility;
+NetDeviceContainer enbLteDevs,ueLteDevs,HenbLteDevs,alleNbs;;
+NodeContainer eNbsnodes, HeNbsnodes, UEsnodes, remoteHostContainer, WiFinodes;
+Ptr<ConstantPositionMobilityModel> mm0;
+Ptr<MobilityModel> mob;
+Vector pos;
+InternetStackHelper internet;
+Ipv4InterfaceContainer ueIpIface;
+Ipv4AddressHelper address;
+Ipv4StaticRoutingHelper ipv4RoutingHelper;
+Ipv4Address remoteHostAddr;
+Ipv4AddressHelper address;
+Ipv4InterfaceContainer internetIpIfaces;
+Ptr<Node> pgw ;
+static Ptr<LteEnbNetDevice> eNbLteDevice;
 
 /*--------------- Various Variables Declaration-----------*/
 Ptr<NormalRandomVariable> endTimeVoice;
@@ -159,8 +181,7 @@ PrintGnuplottableBuildingListToFile (std::string filename)
     }
 } */
 
-void
-PrintGnuplottableUeListToFile (std::string filename)
+void PrintGnuplottableUeListToFile (std::string filename)
 {
   std::ofstream outFile;
   outFile.open (filename.c_str (), std::ios_base::out | std::ios_base::trunc);
@@ -333,7 +354,7 @@ void createMobility (MobilityHelper mobility, Ptr<ConstantPositionMobilityModel>
 /**
  * Installs a set of (H)eNBs to the access network
  */
-NetDeviceContainer accessNetworkSetUp(const NodeContainer& nodes, double TxPower, std::string pathLossModel, double frequency, double internalWallLoss, double shadow, double dl_earfcn, double ul_earfcn, double dl_bw, double ul_bw) {
+NetDeviceContainer accessNetworkSetUp(const NodeContainer& nodes, double TxPower, string pathLossModel, double frequency, double internalWallLoss, double shadow, double dl_earfcn, double ul_earfcn, double dl_bw, double ul_bw) {
 	/*----------------------------------eNBs Declaration----------------------------------------------------------*/
 	Config::SetDefault("ns3::LteEnbPhy::TxPower", DoubleValue(TxPower));
 	lteHelper->SetAttribute("PathlossModel",StringValue(pathLossModel));
@@ -415,15 +436,15 @@ void AppsSetup (uint16_t &dlPort, uint16_t &ulPort, uint32_t u, Time startTime, 
   }
   else if (stype == VIDEO)
   {
-	  UdpClientHelper ulClient (remoteHostAddr, ulPort);
-    ulClient.SetAttribute ("Interval", TimeValue (MilliSeconds(packet_interval))); //10
-    ulClient.SetAttribute ("MaxPackets", UintegerValue(1000000));
-    ulClient.SetAttribute ("PacketSize", UintegerValue(400)); //100
+	UdpClientHelper ulClient (remoteHostAddr, ulPort);
+	ulClient.SetAttribute ("Interval", TimeValue (MilliSeconds(packet_interval))); //10
+	ulClient.SetAttribute ("MaxPackets", UintegerValue(1000000));
+	ulClient.SetAttribute ("PacketSize", UintegerValue(400)); //100
     cApps.Add (ulClient.Install (ue));
   }
   else if (stype == VOIP)
   {
-	  UdpClientHelper ulClient (remoteHostAddr, ulPort);
+	UdpClientHelper ulClient (remoteHostAddr, ulPort);
     ulClient.SetAttribute ("Interval", TimeValue (MilliSeconds(packet_interval))); //10
     ulClient.SetAttribute ("MaxPackets", UintegerValue(1000000));
     ulClient.SetAttribute ("PacketSize", UintegerValue(voip_packet_size)); //200
@@ -448,57 +469,194 @@ void TrafficTimeline (Ptr<UniformRandomVariable> sTypes, uint16_t i, double simT
 	int stype;
 	double startTime, endTime;
 	endTime = 0.0;
+	string serv;
 
-
-	while(1) {
-	stype = (int)sTypes->GetValue ();
-
-	if(stype == VOICE)
+	while(1)
 	{
-	  startTime = endTime + 0.0001;
-	  endTime = startTime + std::abs(endTimeVoice->GetValue ());
+		stype = (int)sTypes->GetValue ();
 
-	} else if (stype == VIDEO) {
+		if(stype == VOICE)
+		{
+		  startTime = endTime + 0.0001;
+		  endTime = startTime + std::abs(endTimeVoice->GetValue ());
+		}
+		else if (stype == VIDEO)
+		{
+		  startTime = endTime + 0.0001;
+		  endTime = startTime + std::abs(endTimeVideo->GetValue ());
+		}
+		else if (stype == VOIP)
+		{
 
-	  startTime = endTime + 0.0001;
-	  endTime = startTime + std::abs(endTimeVideo->GetValue ());
+		 startTime = endTime + 0.0001;
+		 endTime = startTime + std::abs(endTimeVoip->GetValue ());
+		}
+		if (endTime >= simTimeNS)
+		  break;
 
-	} else if (stype == VOIP) {
-
-	 startTime = endTime + 0.0001;
-	 endTime = startTime + std::abs(endTimeVoip->GetValue ());
+		if(stype == VOICE)
+		  serv = "VOICE";
+		else if(stype == VIDEO)
+		  serv = "VIDEO";
+		else if(stype == VOIP)
+		  serv = "VOIP";
+		cout << "Service Type : \t" << serv << "\tStart Time :\t" << startTime << "\tEnd Time :\t" << endTime << "\tduration :\t" <<  endl;
+		AppsSetup (dlPort, ulPort, i, Seconds(startTime), Seconds(endTime), stype);
+	}
 }
 
-//std::cout << "ENDTIME : " << endTime << " SIMTIMENS : " << simTimeNS << std::endl;
-
-if (endTime >= simTimeNS)
-  break;
-
-string serv;
-
-if(stype == VOICE)
-  serv = "VOICE";
-else if(stype == VIDEO)
-  serv = "VIDEO";
-else if(stype == VOIP)
-  serv = "VOIP";
-
-cout << "Service Type : \t" << serv << "\tStart Time :\t" << startTime
-		  << "\tEnd Time :\t" << endTime << "\tduration :\t" <<  endl;
-
-
-AppsSetup (dlPort, ulPort, i, Seconds(startTime), Seconds(endTime), stype);
-}
+void addX2intf ()
+{
+	lteHelper->AddX2Interface(eNbsnodes);
+	lteHelper->AddX2Interface(HeNbsnodes);
+	for(int i=0;i<neNbs;i++)
+	{
+		for(int j=0;j<nHeNbs;j++)
+		{
+			lteHelper->AddX2Interface(HeNbsnodes.Get(j),eNbsnodes.Get(i));
+			cout<< "Adding X2 interface for HeNB = "<<j<<" and eNB = "<<i<<endl;
+		}
+	}
+	ueLteDevs = lteHelper->InstallUeDevice(UEsnodes);
 }
 
+void createInternet()
+{
+	remoteHost = remoteHostContainer.Get(0);/*later we will need to use remoteHost as a ptr*/
+	internet.Install(remoteHostContainer);
+	cout << "The Remote Host,means the Internet,for lte created with success!!" << endl;
+	/*Create Internet Protocol Stack-Connections-Attributes*/
+	PointToPointHelper p2ph;
+	p2ph.SetDeviceAttribute("DataRate", DataRateValue(DataRate("10Gb/s"))); // 1mb/s
+	p2ph.SetDeviceAttribute("Mtu", UintegerValue(1500));
+	p2ph.SetChannelAttribute("Delay", TimeValue(Seconds(0.5)));
+	NetDeviceContainer internetDevices = p2ph.Install(pgw, remoteHost);
+	address.SetBase("192.168.1.0", "255.255.255.0");
+	internetIpIfaces = address.Assign(internetDevices);
+	remoteHostAddr = internetIpIfaces.GetAddress(1); /* interface 0 is localhost, 1 is the p2p device */
+	Ptr<Ipv4StaticRouting> remoteHostStaticRouting = ipv4RoutingHelper.GetStaticRouting(remoteHost->GetObject<Ipv4>());
+	remoteHostStaticRouting->AddNetworkRouteTo(Ipv4Address("7.0.0.0"),Ipv4Mask("255.0.0.0"),1);
+	internet.Install(UEsnodes);
+	ueIpIface = epcHelper->AssignUeIpv4Address(NetDeviceContainer(ueLteDevs));
+	cout << "The Internet Protocol Stack-Connections-Attributes for lte nodes created with success!!" << endl;
+}
 
+void assignIP ()
+{
+	for (uint32_t u = 0; u < UEsnodes.GetN(); ++u)
+	{
+		Ptr<Node> ueNode = UEsnodes.Get(u);
+		// Set the default gateway for the UE
+		Ptr<Ipv4StaticRouting> ueStaticRouting = ipv4RoutingHelper.GetStaticRouting(ueNode->GetObject<Ipv4>());
+		ueStaticRouting->SetDefaultRoute(
+		epcHelper->GetUeDefaultGatewayAddress(),1);
+	}
+	lteHelper->Attach(ueLteDevs);
+}
+
+void NotifyConnectionEstablishedUe(std::string context, uint64_t imsi,uint16_t cellid, uint16_t rnti)
+{
+	cout << context << " UE IMSI " << imsi << ": connected to CellId " << cellid << " with RNTI " << rnti << endl;
+	if(imsi<=(uint64_t)nUEs)
+	{
+		Ues_per_Cell[0]++;
+	}
+}
+
+void NotifyHandoverStartUe(std::string context, uint64_t imsi, uint16_t cellid,uint16_t rnti, uint16_t targetCellId)
+{
+	cout << context << " UE IMSI " << imsi << ": previously connected to CellId " << cellid << " with RNTI "<< rnti << ", doing handover to CellId " << targetCellId <<endl;
+}
+
+void NotifyHandoverEndOkUe(std::string context, uint64_t imsi, uint16_t cellid,uint16_t rnti)
+{
+	cout << context << " UE IMSI " << imsi << ": successful handover to CellId " << cellid << " with RNTI " << rnti << endl;
+}
+
+void NotifyConnectionEstablishedEnb(std::string context, uint64_t imsi,uint16_t cellid, uint16_t rnti)
+{
+	eNbLteDevice = alleNbs.Get(cellid-1)->GetObject<LteEnbNetDevice>();
+	std::cout << context << " eNB CellId " <<  cellid << " with dl bandwidht :  " << (int)eNbLteDevice->GetDlBandwidth() << " with dl earfcn :  " << (int)eNbLteDevice->GetDlEarfcn()
+			<< ": successful connection of UE with IMSI " << imsi << " RNTI "
+			<< rnti << std::endl;
+}
+
+void NotifyHandoverStartEnb(std::string context, uint64_t imsi, uint16_t cellid,uint16_t rnti, uint16_t targetCellId)
+{
+	cout << context << " eNB CellId " << cellid << ": start handover of UE with IMSI " << imsi << " RNTI " << rnti << " to CellId " << targetCellId << std::endl;
+}
+
+void NotifyHandoverEndOkEnb(std::string context, uint64_t imsi, uint16_t cellid,uint16_t rnti)
+{
+	eNbLteDevice = alleNbs.Get(cellid-1)->GetObject<LteEnbNetDevice>();
+	std::cout << context << " eNB CellId " << cellid
+			<< ": completed handover of UE with IMSI " << imsi << " RNTI "
+			<< rnti << " with dl bandwidht :  " << (int)eNbLteDevice->GetDlBandwidth() << " with dl earfcn :  " << (int)eNbLteDevice->GetDlEarfcn() << std::endl;
+
+}
+
+/*void ReportUeMeasurementsCallback(std::string path, uint16_t rnti,uint16_t cellId, double rsrp, double rsrq, bool servingCell) {
+	if (servingCell == 1) {
+		if (counter <= nUEs)
+		{
+			cout << "The current time is : " << Simulator::Now().GetSeconds() << endl;
+			RSRPMes[counter] = rsrp;
+			counter++;
+		} else {
+			counter = 0;
+		}
+		cout << " " << counter << " " << rnti << " " << rsrp << " " << rsrq << " " << cellId << " " << servingCell;
+		cout << "----------------------------------------------------------------------" << endl;
+	}
+
+}*/
+
+void callBackandStats()
+{
+	/*CallBacks*/
+		//Config::Connect("/NodeList/*/DeviceList/*/LteUePhy/ReportUeMeasurements",MakeCallback(&ReportUeMeasurementsCallback));
+
+		// connect custom trace sinks for RRC connection establishment and handover notification
+		Config::Connect("/NodeList/*/DeviceList/*/ ",
+				MakeCallback(&NotifyConnectionEstablishedEnb));
+		Config::Connect("/NodeList/*/DeviceList/*/LteUeRrc/ConnectionEstablished",
+				MakeCallback(&NotifyConnectionEstablishedUe));
+		Config::Connect("/NodeList/*/DeviceList/*/LteEnbRrc/HandoverStart",
+				MakeCallback(&NotifyHandoverStartEnb));
+		Config::Connect("/NodeList/*/DeviceList/*/LteUeRrc/HandoverStart",
+				MakeCallback(&NotifyHandoverStartUe));
+		Config::Connect("/NodeList/*/DeviceList/*/LteEnbRrc/HandoverEndOk",
+				MakeCallback(&NotifyHandoverEndOkEnb));
+		Config::Connect("/NodeList/*/DeviceList/*/LteUeRrc/HandoverEndOk",
+				MakeCallback(&NotifyHandoverEndOkUe));
+
+		// This callback trigges the handover algorithm
+		//Config::Connect("/NodeList/*/DeviceList/*/LteEnbRrc/RecvMeasurementReport",MakeCallback(&RecvMeasurementReportCallback));
+		//Config::Connect("/NodeList/*/DeviceList/*/LteUePhy/ReportUeMeasurements",MakeCallback(&ReportUeMeasurementsCallback));
+
+		/*Traces files*/
+
+		lteHelper->EnablePdcpTraces();
+		lteHelper->GetPdcpStats()->SetUlPdcpOutputFilename(ul_pdcp_flname);
+		lteHelper->GetPdcpStats()->SetDlPdcpOutputFilename(dl_pdcp_flname);
+}
 void Initialise_Arrays()
 {
-	for(int i=0;i<nUEs_Array;i++)
+	for(uint32_t i=0;i<nUEs_Array;i++)
 	{
 		CellMap[i] = 0;
+		for(uint16_t kk = 0; kk<3;kk++)
+		{
+			ueIds[i].txBytes[kk] = 0;
+			ueIds[i].txPackets[kk] = 0;
+			ueIds[i].rxBytes[kk]= 0;
+			ueIds[i].rxPackets[kk] = 0;
+			ueIds[i].LostPackets[kk] = 0;
+		}
 	}
+	Ues_per_Cell = new uint32_t[3];
+	ueIds = new ueInformation[nUEs_Array];
+	CellMap = new int [nUEs_Array];
 	cout << "Initialization of CellMap array finish with success"<< endl;
-
 }
 #endif
