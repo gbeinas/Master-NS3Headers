@@ -83,7 +83,6 @@ Ipv4InterfaceContainer ueIpIface;
 Ipv4AddressHelper address;
 Ipv4StaticRoutingHelper ipv4RoutingHelper;
 Ipv4Address remoteHostAddr;
-Ipv4AddressHelper address;
 Ipv4InterfaceContainer internetIpIfaces;
 Ptr<Node> pgw ;
 static Ptr<LteEnbNetDevice> eNbLteDevice;
